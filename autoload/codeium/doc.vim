@@ -1,3 +1,5 @@
+let s:save_cpo = &cpo
+set cpo&vim
 let s:language_enum = {
       \ 'unspecified': 0,
       \ 'c': 1,
@@ -120,3 +122,4 @@ function! codeium#doc#GetEditorOptions() abort
       \ 'insert_spaces': &expandtab ? v:true : v:false,
       \ }
 endfunction
+let &cpo = s:save_cpo

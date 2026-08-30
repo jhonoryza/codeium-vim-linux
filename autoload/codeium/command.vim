@@ -40,7 +40,21 @@ function! codeium#command#LoadConfig(dir) abort
   return {}
 endfunction
 
-let s:api_key = get(codeium#command#LoadConfig(codeium#command#HomeDir()), 'apiKey', '')
+function! s:ApiKeyFromConfig(config) abort
+  return get(a:config, 'apiKey', get(a:config, 'api_key', ''))
+endfunction
+
+function! s:ResolveApiKey() abort
+  for dir in [$HOME . '/.config/Codeium', codeium#command#HomeDir(), $HOME . '/.codeium', codeium#command#XdgConfigDir()]
+    let key = s:ApiKeyFromConfig(codeium#command#LoadConfig(dir))
+    if !empty(key)
+      return key
+    endif
+  endfor
+  return ''
+endfunction
+
+let s:api_key = s:ResolveApiKey()
 
 let s:commands = {}
 
@@ -54,87 +68,31 @@ function! s:commands.Auth(...) abort
     echoerr 'This version of Vim is unsupported. Install ' . min_version . ' or greater to use Codeium.'
     return
   endif
-
-  let config = get(g:, 'codeium_server_config', {})
-  let portal_url = get(config, 'portal_url', 'https://www.codeium.com')
-
-  let url = portal_url . '/profile?response_type=token&redirect_uri=vim-show-auth-token&state=a&scope=openid%20profile%20email&redirect_parameters_type=query'
-  let browser = codeium#command#BrowserCommand()
-  let opened_browser = v:false
-  if !empty(browser)
-    echomsg 'Navigating to ' . url
-    try
-      call system(browser . ' ' . '"' . url . '"')
-      if v:shell_error is# 0
-        let opened_browser = v:true
-      endif
-    catch
-    endtry
-
-    if !opened_browser
-      echomsg 'Failed to open browser. Please go to the link above.'
-    endif
+  if a:0 > 0 && !empty(a:1)
+    let api_key = trim(a:1)
   else
-    echomsg 'No available browser found. Please go to ' . url
+    call inputsave()
+    let api_key = trim(input('Paste your Codeium API key (dari ~/.config/Codeium/config.json): '))
+    call inputrestore()
+    echom ''
   endif
-
-  let api_key = ''
-  call inputsave()
-  let auth_token = inputsecret('Paste your token here: ')
-  call inputrestore()
-  let tries = 0
-
-  if has_key(config, 'api_url') && !empty(config.api_url)
-    let register_user_url = config.api_url . '/exa.seat_management_pb.SeatManagementService/RegisterUser'
-  else
-    let register_user_url = 'https://api.codeium.com/register_user/'
+  if empty(api_key)
+    echomsg 'Codeium: API key kosong, dibatalkan.'
+    return
   endif
-
-  while empty(api_key) && tries < 3
-    let command = 'curl -sSL ' . register_user_url . ' ' .
-          \ '--header "Content-Type: application/json" ' .
-          \ '--data ' . shellescape(json_encode({'firebase_id_token': auth_token}))
-    let response = system(command)
-    let curl_ssl_error = 'The revocation function was unable to check revocation '
-          \ . 'for the certificate.'
-    if has('win32') && response=~curl_ssl_error
-        call inputsave()
-        let useNoSsl = input('For Windows systems behind a corporate proxy there '
-              \ . 'may be trouble verifying the SSL certificates. '
-              \ . 'Would you like to try auth without checking SSL certificate revocation? (y/n): ')
-        call inputrestore()
-        if useNoSsl ==? 'y'
-            let command = 'curl --ssl-no-revoke -sSL ' . register_user_url . ' ' .
-                  \ '--header "Content-Type: application/json" ' .
-                  \ '--data ' . shellescape(json_encode({'firebase_id_token': auth_token}))
-            let response = system(command)
-        endif
-    endif
-    let res = json_decode(response)
-    let api_key = get(res, 'api_key', '')
-    if empty(api_key)
-      echomsg 'Unexpected response: ' . response
-      call inputsave()
-      let auth_token = inputsecret('Invalid token, please try again: ')
-      call inputrestore()
-    endif
-    let tries = tries + 1
-  endwhile
-
-  if !empty(api_key)
-    let s:api_key = api_key
-    let config_dir = codeium#command#HomeDir()
+  let s:api_key = api_key
+  for config_dir in [$HOME . '/.config/Codeium', codeium#command#HomeDir()]
     let config_path = config_dir . '/config.json'
     let config = codeium#command#LoadConfig(config_dir)
     let config.apiKey = api_key
-
     try
       call mkdir(config_dir, 'p')
       call writefile([json_encode(config)], config_path)
     catch
-      call codeium#log#Error('Could not persist api key to config.json')
+      call codeium#log#Error('Could not persist api key to ' . config_path)
     endtry
-  endif
+  endfor
+  echomsg 'Codeium: API key disimpan ke ~/.config/Codeium/config.json (tanpa call server).'
 endfunction
 
 function s:commands.Chat(...) abort
@@ -176,8 +134,11 @@ function! s:commands.Toggle(...) abort
 endfunction
 
 function! codeium#command#ApiKey() abort
-  if s:api_key == ''
-    echom 'Codeium: No API key found; maybe you need to run `:Codeium Auth`?'
+  if empty(s:api_key)
+    let s:api_key = s:ResolveApiKey()
+  endif
+  if empty(s:api_key)
+    echom 'Codeium: No API key found di ~/.config/Codeium/config.json; jalankan `:Codeium Auth <api_key>`'
   endif
   return s:api_key
 endfunction

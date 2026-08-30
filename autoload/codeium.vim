@@ -1,3 +1,5 @@
+let s:save_cpo = &cpo
+set cpo&vim
 let s:hlgroup = 'CodeiumSuggestion'
 let s:request_nonce = 0
 let s:using_codeium_status = 0
@@ -564,3 +566,4 @@ function! codeium#ServerLeave() abort
     call job_stop(g:codeium_server_job)
   endif
 endfunction
+let &cpo = s:save_cpo
